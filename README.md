@@ -4,9 +4,9 @@ The static file handler for a [skein](https://github.com/shruggr/skein)
 instance (shruggr/skein#52), as an app (skein `docs/APPS.md`). Split out of
 skein by shruggr/skein#71, with its history (`programs/static`).
 
-It serves files from the instance's `main` tree through the front door's
-routes table. It is a **route handler**: the front door calls its `fn
-"get"` with each request and the routes-table entry that matched. It is
+It serves files from the instance's `main` tree through the instance's
+dispatch table (skein #77). It is a **route handler**: the front door calls
+its `fn "get"` with each request and the dispatch row that matched. It is
 never stepped and writes nothing; each request is still an entry in the log
 (skein #68). GET and HEAD are answered. A path ending in `/` serves its
 `index` (default `index.html`). A directory named without the `/` is a 301.
@@ -34,20 +34,25 @@ A tree that serves files does two things:
 1. It carries the module, as `bin/static.wasm` (copied from here) or as
    `bin/static.cid` (that CID, when the instance already holds the module).
    It may also carry `bin/static.json` (`{inputs, description}`).
-2. It puts static on routes in `etc/routes.json`:
+2. It puts static on http rows in `etc/dispatch.json` (skein #77):
 
 ```json
 [
-  {"prefix": "/site", "program": "static", "fn": "get", "auth": "none", "root": "www"},
-  {"path": "/favicon.ico", "program": "static", "fn": "get", "auth": "none", "root": "www/favicon.ico"},
-  {"path": "/", "program": "static", "fn": "get", "auth": "none", "root": "www"}
+  {"transport": "http", "address": "/site", "prefix": true, "sender": "*", "program": "static", "fn": "get", "root": "www"},
+  {"transport": "http", "address": "/favicon.ico", "sender": "*", "program": "static", "fn": "get", "root": "www/favicon.ico"},
+  {"transport": "http", "address": "/", "sender": "*", "program": "static", "fn": "get", "root": "www"}
 ]
 ```
 
 `root` (default: the tree's top) and `index` (default `index.html`) are the
-route's own settings. `auth: "none"` serves the files without a BRC-104
-session. Leave it out to require one. An exact `path` whose root is a file
-serves that file.
+row's own settings, carried to the handler as `match`. Sender `*` serves the
+files without a BRC-104 session; `session` requires one. An exact row whose
+root is a file serves that file.
+
+Installed as an app (`skein-host install`, skein docs/APPS.md), its rows are
+`etc/app.json`'s, relative to `/static/`. 0.2.0 (skein #79) reads the #77 row
+shape only (`prefix: true`, the path its `address`); 0.1.0 read the routes
+table's `prefix` text.
 
 Booting an instance from such a tree is `skein-host add <handle> --boot <dir>`
 (skein `docs/BOOTSTRAP.md`). Installing into a running instance is the three

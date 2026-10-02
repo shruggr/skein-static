@@ -1,7 +1,7 @@
 {
   "kind": "app",
   "name": "static",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "programs": {
     "static": "bin/static.wasm"
   },
@@ -9,16 +9,45 @@
     {
       "interface": "static.files/1",
       "functions": {
-        "get": {"writes": false, "args": {"method?": "string", "route?": "string", "path?": "string", "query?": "string", "headers?": "map", "match?": "map"}, "answer": {"status": "int", "type": "string", "headers": "map", "body": "bytes"}}
+        "get": {
+          "writes": false,
+          "args": {
+            "method?": "string",
+            "route?": "string",
+            "path?": "string",
+            "query?": "string",
+            "headers?": "map",
+            "match?": "map"
+          },
+          "answer": {
+            "status": "int",
+            "type": "string",
+            "headers": "map",
+            "body": "bytes"
+          }
+        }
       }
     }
   ],
   "requires": [],
-  "boxes": [],
-  "routes": [
-    {"prefix": "/site", "program": "static", "fn": "get", "auth": "none", "root": "www"},
-    {"path": "/", "program": "static", "fn": "get", "auth": "none", "root": "www"}
+  "dispatch": [
+    {
+      "transport": "http",
+      "address": "/site",
+      "prefix": true,
+      "sender": "*",
+      "program": "static",
+      "fn": "get",
+      "root": "www"
+    },
+    {
+      "transport": "http",
+      "address": "/",
+      "sender": "*",
+      "program": "static",
+      "fn": "get",
+      "root": "www"
+    }
   ],
-  "heads": [],
-  "description": "Files from the instance's `main` tree through the routes table (#52): a route handler, called by the front door with each request, never stepped. GET/HEAD, index files, 301 for a directory without its slash, 404/405, the blob's CID as the ETag (304 on If-None-Match)."
+  "description": "Files from the instance's `main` tree through the dispatch table (#52, #77): a route handler, called by the front door with each request, never stepped. GET/HEAD, index files, 301 for a directory without its slash, 404/405, the blob's CID as the ETag (304 on If-None-Match)."
 }

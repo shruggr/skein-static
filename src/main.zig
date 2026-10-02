@@ -1,12 +1,12 @@
-//! static (#52): files from the instance's tree, served through the routes
-//! table. A route handler (a read: no entry, no writes): the front door calls
-//! its fn "get" with the request and the routes-table entry that matched
+//! static (#52): files from the instance's tree, served through the dispatch
+//! table (skein #77). A route handler (a read: no writes): the front door
+//! calls its fn "get" with the request and the dispatch row that matched
 //! (`match`), and it answers the blob at `<root>/<path>` under the `main`
 //! head's tree.
 //!
-//!   etc/routes.json  {prefix: "/site", program: "static", fn: "get", auth: "none",
-//!                     root?: "www", index?: "index.html"}
-//!                    (or an exact `path`; `auth` as any route: default BRC-104)
+//!   an http row  {transport: "http", address: "/site", prefix: true, sender: "*" | "session",
+//!                 program: static, fn: "get", root?: "www", index?: "index.html"}
+//!                (or an exact row, no `prefix`)
 //!
 //! The path is the request's route (the host strips `/@<handle>`) past the
 //! route's prefix (an exact `path` route serves its root's index), percent-
@@ -86,7 +86,7 @@ fn serve(a: Allocator, req: Value) !Value {
     }
     const match: Value = req.get("match") orelse .null;
     const route = Value.str(req.get("route")) orelse Value.str(req.get("path")) orelse "/";
-    const rest = restOf(route, Value.str(match.get("prefix"))) orelse return notFound(head).value(a);
+    const rest = restOf(route, prefixOf(match)) orelse return notFound(head).value(a);
     const root = Value.str(match.get("root")) orelse "";
     const index = Value.str(match.get("index")) orelse DEFAULT_INDEX;
     const p = (try resolvePath(a, root, rest)) orelse return notFound(head).value(a);
@@ -96,7 +96,7 @@ fn serve(a: Allocator, req: Value) !Value {
     var name = if (p.segs.len > 0) p.segs[p.segs.len - 1] else "";
     if (isDir(e.mode)) {
         // Not for an exact route (its path is the only one it answers).
-        const bare_prefix = rest.len == 0 and match.get("prefix") != null and !std.mem.endsWith(u8, route, "/");
+        const bare_prefix = rest.len == 0 and prefixOf(match) != null and !std.mem.endsWith(u8, route, "/");
         if (!p.dir or bare_prefix) {
             // The directory without its `/`: relative links would resolve against the parent.
             const path = Value.str(req.get("path")) orelse route;
@@ -144,6 +144,13 @@ pub fn matches(etag: []const u8, header: ?[]const u8) bool {
 }
 
 // ---------------------------------------------------------------- paths
+
+/// A prefix row's path (#77: `prefix: true`, the path its `address`, as served), or null: an exact row.
+pub fn prefixOf(match: Value) ?[]const u8 {
+    const p = match.get("prefix") orelse return null;
+    if (p == .bool and p.bool) return Value.str(match.get("address"));
+    return null;
+}
 
 /// The part of `route` past the route's prefix; null when the prefix ends
 /// mid-segment (`/sitemap` under `/site`). An exact route (no prefix): "".
@@ -333,6 +340,19 @@ test "escaping the root is refused" {
     try testing.expect(try resolvePath(a, "www", "/a%zz") == null);
     try testing.expect(try resolvePath(a, "www", "/a%2") == null);
     try testing.expect(try resolvePath(a, "../www", "/a") == null);
+}
+
+test "a row's prefix: its address when prefix is true" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var m = cbor.MapBuilder.init(a);
+    try m.put("address", cbor.string("/static/site"));
+    try m.put("prefix", .{ .bool = true });
+    try testing.expectEqualStrings("/static/site", prefixOf(m.value()).?);
+    var e = cbor.MapBuilder.init(a);
+    try e.put("address", cbor.string("/static/"));
+    try testing.expect(prefixOf(e.value()) == null);
 }
 
 test "the part past the prefix" {
