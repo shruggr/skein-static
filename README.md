@@ -1,79 +1,111 @@
 # skein-static
 
-The static file handler for a [skein](https://github.com/shruggr/skein)
-instance (shruggr/skein#52), as an app (skein `docs/APPS.md`). Split out of
-skein by shruggr/skein#71, with its history (`programs/static`).
+The static file handler for a [skein](https://github.com/shruggr/skein), as
+an app: it serves files from the instance's `main` tree over HTTP,
+through rows of the instance's dispatch table. It is a route handler: the
+front door calls it with each request and the row that matched, it writes
+nothing, and each request is still an entry in the log. Version **0.2.0**.
 
-It serves files from the instance's `main` tree through the instance's
-dispatch table (skein #77). It is a **route handler**: the front door calls
-its `fn "get"` with each request and the dispatch row that matched. It is
-never stepped and writes nothing; each request is still an entry in the log
-(skein #68). GET and HEAD are answered. A path ending in `/` serves its
-`index` (default `index.html`). A directory named without the `/` is a 301.
-A missing file, a `..` segment, a NUL or a bad escape is a 404, so nothing is
-served from outside `root`. Any other method is a 405. The ETag is the blob's
-CID (git-raw, sha1), and `If-None-Match` is answered 304. `src/main.zig`
-documents the contract in full.
+## What it is
 
-## The tree
+One program, `bin/static.wasm`, function `get` (interface
+`static.files/1`, `writes: false`):
+
+| request | answer |
+|---|---|
+| GET, HEAD of a file | 200, content type by extension, the blob's CID (git-raw, sha1) as the ETag |
+| `If-None-Match` with that ETag | 304 |
+| a path ending in `/` | its `index` (default `index.html`) |
+| a directory named without its `/` | 301 |
+| missing, `..`, NUL, a bad escape | 404: nothing is served from outside `root` |
+| any other method | 405 |
+
+A row's own settings reach the handler as `match`: `root` (the directory, or
+a single file for an exact row; default the tree's top) and `index`.
+`src/main.zig` documents the contract in full.
+
+## Use it
+
+Install it as an app; its rows are under `/<app>/`, here `/static/`:
 
 ```
-bin/static.wasm   the module (wasm32-wasi, committed; `zig build bin` rewrites it)
-etc/app.json      the manifest (skein docs/APPS.md §2)
-src/main.zig      the handler
+skein-host install https://github.com/shruggr/skein-static --instance <handle>
 ```
 
-`bin/static.wasm` is the module skein pinned for `static` before #71:
-raw CID `bafkreiewar6biptwbkvwmrymqixp24nyekcv6skzibbw57mnkwuiykvazu`. The build
-is reproducible.
+The manifest, `etc/app.json` (description left out):
 
-## Using it
+```json
+{
+  "kind": "app",
+  "name": "static",
+  "version": "0.2.0",
+  "programs": { "static": "bin/static.wasm" },
+  "provides": [{ "interface": "static.files/1", "functions": {
+    "get": { "writes": false,
+      "args": { "method?": "string", "route?": "string", "path?": "string", "query?": "string", "headers?": "map", "match?": "map" },
+      "answer": { "status": "int", "type": "string", "headers": "map", "body": "bytes" } } } }],
+  "requires": [],
+  "dispatch": [
+    { "transport": "http", "address": "/site", "prefix": true, "sender": "*", "program": "static", "fn": "get", "root": "www" },
+    { "transport": "http", "address": "/", "sender": "*", "program": "static", "fn": "get", "root": "www" }
+  ]
+}
+```
 
-A tree that serves files does two things:
-
-1. It carries the module, as `bin/static.wasm` (copied from here) or as
-   `bin/static.cid` (that CID, when the instance already holds the module).
-   It may also carry `bin/static.json` (`{inputs, description}`).
-2. It puts static on http rows in `etc/dispatch.json` (skein #77):
+- `prefix: true` serves everything under the address; an exact row serves
+  one path. Sender `*` serves without a BRC-104 session; `session` requires
+  one.
+- It reads the tree of the head `main` (`root` is a path in that tree), not
+  the app's own tree. It writes nothing, so the name rule (an app writes
+  only heads under its own name) does not constrain it.
+- Another app can carry the handler: ship `bin/static.wasm` (or
+  `bin/static.cid` when the instance already holds the module) and put that
+  program on the app's own http rows.
+- An instance booted from a system tree (`skein-host add <handle> --boot
+  <dir>`, skein `docs/BOOTSTRAP.md`) wires it with the same rows in
+  `etc/dispatch.json`, where the addresses are absolute:
 
 ```json
 [
   {"transport": "http", "address": "/site", "prefix": true, "sender": "*", "program": "static", "fn": "get", "root": "www"},
-  {"transport": "http", "address": "/favicon.ico", "sender": "*", "program": "static", "fn": "get", "root": "www/favicon.ico"},
-  {"transport": "http", "address": "/", "sender": "*", "program": "static", "fn": "get", "root": "www"}
+  {"transport": "http", "address": "/favicon.ico", "sender": "*", "program": "static", "fn": "get", "root": "www/favicon.ico"}
 ]
 ```
 
-`root` (default: the tree's top) and `index` (default `index.html`) are the
-row's own settings, carried to the handler as `match`. Sender `*` serves the
-files without a BRC-104 session; `session` requires one. An exact row whose
-root is a file serves that file.
-
-Installed as an app (`skein-host install`, skein docs/APPS.md), its rows are
-`etc/app.json`'s, relative to `/static/`. 0.2.0 (skein #79) reads the #77 row
-shape only (`prefix: true`, the path its `address`); 0.1.0 read the routes
-table's `prefix` text.
-
-Booting an instance from such a tree is `skein-host add <handle> --boot <dir>`
-(skein `docs/BOOTSTRAP.md`). Installing into a running instance is the three
-owner messages of skein `docs/APPS.md` §3: `objects` with the tree, `head`,
-and the routes. Install by message is skein #72.
-
 ## Build and test
 
-Zig 0.16.0 (`mise.toml`). The SDK is a URL+hash dependency in
-`build.zig.zon` (`shruggr/skein-sdk`, fetched by `zig build`).
+Zig 0.16.0 (`mise.toml`).
 
 ```
 zig build          # zig-out/bin/static.wasm
-zig build bin      # the same, into bin/static.wasm
+zig build bin      # the same, into bin/static.wasm (committed; the build is reproducible)
 zig build test     # content types, paths, escapes refused, If-None-Match (natively)
 ```
 
-skein runs this app end to end in its `kernel-zig/equiv/static.ts`. That
-test clones this repo at a pinned commit, boots an instance from a tree
-carrying `bin/static.wasm`, and drives it through the router: the index, nested
-files, the 301, the 404s, the 405, HEAD, ETag/304, every request an entry,
-and a replay.
+skein runs this app end to end in `kernel-zig/equiv/static.ts` (a pinned
+commit of this repo): the index, nested files, the 301, the 404s, the 405,
+HEAD, ETag and 304, every request an entry, and a replay.
 
-MIT, as skein.
+## Docs
+
+| what | where |
+|---|---|
+| the handler's contract | `src/main.zig` |
+| apps, manifests, install | skein `docs/APPS.md` |
+| route handlers and the dispatch table | skein `docs/MESSAGES.md` |
+
+## Versions
+
+| | |
+|---|---|
+| this app | 0.2.0 (tag `v0.2.0`) |
+| skein-sdk | v0.4.0, by tag tarball and hash in `build.zig.zon` (`cbor`, `sk`; no wallet) |
+| skein | log format 8; skein's equivs pin this repo by commit |
+
+0.2.0 reads the dispatch row shape of shruggr/skein#77 only (`prefix: true`
+and the path in `address`; shruggr/skein#79).
+
+## Contributing
+
+Work is tracked in shruggr/skein; start at issue
+[#31](https://github.com/shruggr/skein/issues/31). MIT, as skein.
