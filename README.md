@@ -4,7 +4,7 @@ The static file handler for a [skein](https://github.com/shruggr/skein), as
 an app: it serves files from the instance's `main` tree over HTTP,
 through rows of the instance's dispatch table. It is a route handler: the
 front door calls it with each request and the row that matched, it writes
-nothing, and each request is still an entry in the log. Version **0.2.0**.
+nothing, and each request is still an entry in the log. Version **0.2.1**.
 
 ## What it is
 
@@ -13,7 +13,7 @@ One program, `bin/static.wasm`, function `get` (interface
 
 | request | answer |
 |---|---|
-| GET, HEAD of a file | 200, content type by extension, the blob's CID (git-raw, sha1) as the ETag |
+| GET, HEAD of a file | 200, content type by extension, the blob's CID (git-raw, sha1) as the ETag, `cache-control: no-cache` (caches revalidate; nothing stale) |
 | `If-None-Match` with that ETag | 304 |
 | a path ending in `/` | its `index` (default `index.html`) |
 | a directory named without its `/` | 301 |
@@ -38,7 +38,7 @@ The manifest, `etc/app.json` (description left out):
 {
   "kind": "app",
   "name": "static",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "programs": { "static": "bin/static.wasm" },
   "provides": [{ "interface": "static.files/1", "functions": {
     "get": { "writes": false,
@@ -98,7 +98,7 @@ HEAD, ETag and 304, every request an entry, and a replay.
 
 | | |
 |---|---|
-| this app | 0.2.0 (tag `v0.2.0`) |
+| this app | 0.2.1 (tag `v0.2.1`) |
 | skein-sdk | v0.4.0, by tag tarball and hash in `build.zig.zon` (`cbor`, `sk`; no wallet) |
 | skein | log format 8; skein's equivs pin this repo by commit |
 

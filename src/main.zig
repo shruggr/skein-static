@@ -20,7 +20,7 @@
 //! (`{path: "/favicon.ico", root: "www/favicon.ico"}`). Only regular files
 //! are served (not links or submodules).
 //!
-//!   GET/HEAD → 200 {type: by extension, body: the blob (HEAD: none), headers: {etag}}
+//!   GET/HEAD → 200 {type: by extension, body: the blob (HEAD: none), headers: {etag, cache-control: no-cache}}
 //!              304 when `If-None-Match` names the ETag (or `*`)
 //!              404 no such file; 405 any other method (`Allow: GET, HEAD`)
 //! The ETag is the blob's CID (git-raw, sha1) in quotes: the same bytes
@@ -61,7 +61,12 @@ const Answer = struct {
 
     fn value(r: Answer, a: Allocator) !Value {
         var h = cbor.MapBuilder.init(a);
-        if (r.etag) |e| try h.put("etag", cbor.string(e));
+        if (r.etag) |e| {
+            try h.put("etag", cbor.string(e));
+            // The ETag is the blob's CID: a revalidation is one cheap 304, so caches (a browser, a CDN in
+            // front of the host) keep nothing stale — without this a CDN applies its own default lifetime.
+            try h.put("cache-control", cbor.string("no-cache"));
+        }
         if (r.location) |l| try h.put("location", cbor.string(l));
         if (r.allow) try h.put("allow", cbor.string("GET, HEAD"));
         var m = cbor.MapBuilder.init(a);
