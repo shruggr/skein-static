@@ -1,5 +1,10 @@
 # skein-static
 
+> **Archived.** Moved to skein-sdk `lib/files.zig` (shruggr/skein#125): serving
+> files from a git tree is a function any http handler calls. The management
+> site is [shruggr/skein-site](https://github.com/shruggr/skein-site), an app
+> that serves its own tree with it.
+
 The static file handler for a [skein](https://github.com/shruggr/skein), as
 an app: it serves files from the instance's `main` tree over HTTP,
 through rows of the instance's dispatch table. It is a route handler: the
